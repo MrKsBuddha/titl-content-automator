@@ -28,12 +28,13 @@ const SELECTORS = {
 };
 
 // Wait times (in milliseconds) - AI generation takes time!
+// Increased for large batches (20+ tabs)
 const TIMEOUTS = {
     pageLoad: 30000,      // Max time to wait for page load
-    elementWait: 15000,   // Max time to wait for each element
+    elementWait: 30000,   // Max time to wait for each element (increased for large batches)
     actionDelay: 2000,    // Delay between actions
     retryDelay: 3000,     // Delay before retry
-    aiGeneration: 300000  // Max time to wait for AI content generation (5 minutes - tested live!)
+    aiGeneration: 600000  // Max time to wait for AI (10 minutes for large batches!)
 };
 
 // ==================== GLOBAL STATE ====================
@@ -139,7 +140,11 @@ async function startAutomation() {
         // Check for and dismiss any popups
         await dismissPopup();
 
-        // Step 4.5: Check for "Confirm Topic" button (Maths only)
+        // Step 4.5: Wait for initial AI generation (outline phase)
+        console.log("[Content] Waiting for AI to generate outline...");
+        await sleep(30000);  // Wait 30 seconds for outline to start generating
+
+        // Step 4.6: Check for "Confirm Topic" button (may appear for any subject after AI generates)
         await waitAndClickTopicConfirm();
 
         // Check for popups again after topic confirmation
@@ -348,30 +353,55 @@ async function clickGenerateButton() {
 }
 
 /**
- * Wait for and click "Confirm Topic" button (Maths only - optional)
- * This step only appears for Math, not for Biology or Fashion
+ * Wait for and click "Confirm Topic" button (OPTIONAL - may appear for any subject)
+ * This button sometimes appears, sometimes doesn't - we try to click it if present
  */
 async function waitAndClickTopicConfirm() {
-    console.log("[Content] Checking for 'Confirm Topic' button (Maths-specific)...");
+    console.log("[Content] Checking for 'Confirm Topic' button (may or may not appear)...");
 
-    // Wait a short time for the button to appear
-    await sleep(3000);
+    // Poll for button with timeout (AI needs time to generate first!)
+    const maxWaitTime = 60000;  // 60 seconds max
+    const pollInterval = 3000;   // Check every 3 seconds
+    const startTime = Date.now();
 
     try {
-        // Try to find the topic confirmation button (only appears for Maths)
-        const topicBtn = await waitForElement(SELECTORS.topicConfirmButton, 10000, false);
+        while ((Date.now() - startTime) < maxWaitTime) {
+            // Strategy 1: Try by exact text first
+            let topicBtn = findButtonByText("Confirm Topic");
 
-        if (topicBtn && isVisible(topicBtn)) {
-            console.log("[Content] ✓ 'Confirm Topic' button found (Maths workflow)");
-            topicBtn.click();
-            console.log("[Content] ✓ Topic confirmed");
-            await sleep(2000); // Wait after clicking
-        } else {
-            console.log("[Content] No 'Confirm Topic' button found (Biology/Fashion workflow)");
+            if (topicBtn && isVisible(topicBtn)) {
+                console.log("[Content] ✓ 'Confirm Topic' button found by text!");
+                topicBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                await sleep(2000);
+                topicBtn.click();
+                console.log("[Content] ✓ Topic confirmed");
+                await sleep(2000); // Wait after clicking
+                return;
+            }
+
+            // Strategy 2: Try by selector
+            topicBtn = document.querySelector(SELECTORS.topicConfirmButton);
+
+            if (topicBtn && isVisible(topicBtn)) {
+                console.log("[Content] ✓ 'Confirm Topic' button found by selector!");
+                topicBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                await sleep(2000);
+                topicBtn.click();
+                console.log("[Content] ✓ Topic confirmed");
+                await sleep(2000);
+                return;
+            }
+
+            // Not found yet - wait and try again
+            await sleep(pollInterval);
         }
+
+        // Timeout reached - button didn't appear (that's okay!)
+        console.log("[Content] ℹ️  No 'Confirm Topic' button found after 60s - skipping (this is normal)");
+
     } catch (error) {
-        // This is expected for Biology and Fashion - they don't have this step
-        console.log("[Content] 'Confirm Topic' step skipped (not required for this subject)");
+        // This is expected when button doesn't appear
+        console.log("[Content] ℹ️  'Confirm Topic' step skipped - button not present (this is fine)");
     }
 }
 
@@ -382,8 +412,8 @@ async function waitAndClickProceed() {
     console.log("[Content] Waiting for outline generation...");
     console.log("[Content] Will search for 'Proceed to Full Activity' button");
 
-    // Give outline time to generate
-    await sleep(5000);
+    // Give outline time to generate (longer for large batches)
+    await sleep(10000);  // Increased from 5s to 10s
 
     try {
         // Strategy 1: Search by exact text first (most reliable)
@@ -495,8 +525,8 @@ async function waitAndClickConfirm() {
     console.log("[Content] Waiting for full content generation...");
     console.log("[Content] Will search for Confirm/Save button");
 
-    // Give content time to generate
-    await sleep(5000);
+    // Give content time to generate (longer for large batches)
+    await sleep(10000);  // Increased from 5s to 10s
 
     try {
         // Strategy 1: Search by text variations
